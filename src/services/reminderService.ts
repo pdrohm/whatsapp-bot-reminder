@@ -1,4 +1,5 @@
 import Reminder, { IReminder } from '../models/Reminder';
+import mongoose from 'mongoose';
 
 interface ReminderInput {
   userId: string;
@@ -74,9 +75,18 @@ export const getUpcomingReminders = async (): Promise<IReminder[]> => {
 
 export const deleteReminder = async (reminderId: string): Promise<boolean> => {
   try {
-    const result = await Reminder.findByIdAndDelete(reminderId);
-    return !!result;
+    console.log('Attempting to delete reminder with ID:', reminderId);
+    
+    // Convert string ID to MongoDB ObjectId
+    const objectId = new mongoose.Types.ObjectId(reminderId);
+    console.log('Converted to ObjectId:', objectId);
+    
+    const result = await Reminder.deleteOne({ _id: objectId });
+    console.log('Delete result:', result);
+    
+    return result.deletedCount > 0;
   } catch (error) {
+    console.error('Error in deleteReminder:', error);
     throw new Error(`Error deleting reminder: ${error}`);
   }
 }; 

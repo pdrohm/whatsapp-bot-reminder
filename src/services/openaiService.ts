@@ -17,6 +17,7 @@ Você deve:
 3. Manter um histórico da conversa para contexto
 4. Usar emojis para tornar a conversa mais amigável
 5. Ser conciso e direto nas respostas
+6. Identificar quando o usuário quer deletar um lembrete e extrair qual lembrete deve ser deletado
 
 Formato de resposta:
 - Sempre confirme os detalhes do lembrete
@@ -45,7 +46,7 @@ export class ConversationManager {
             const userReminders = await getUserReminders(this.userId);
             const remindersContext = userReminders.length > 0 
                 ? `\n\nLembretes atuais do usuário:\n${userReminders.map(r => 
-                    `- ${r.text} (${r.date.toLocaleDateString('pt-BR')} às ${r.time})`
+                    `- ID: ${r._id} | ${r.text} (${r.date.toLocaleDateString('pt-BR')} às ${r.time})`
                 ).join('\n')}`
                 : '';
 
@@ -82,6 +83,24 @@ export class ConversationManager {
                 }
             }
 
+            // Check if the response indicates a reminder should be deleted
+            if (response.includes("deletar") || response.includes("remover") || response.includes("apagar")) {
+                const reminderToDelete = await this.extractReminderToDelete(message, userReminders);
+                if (reminderToDelete) {
+                    console.log('Found reminder to delete:', reminderToDelete);
+                    console.log('Reminder ID:', reminderToDelete._id);
+                    const deleted = await deleteReminder(reminderToDelete._id.toString());
+                    console.log('Delete operation result:', deleted);
+                    if (deleted) {
+                        return `✅ Lembrete deletado com sucesso: *${reminderToDelete.text}*`;
+                    } else {
+                        return "❌ Não foi possível deletar o lembrete. Por favor, tente novamente.";
+                    }
+                } else {
+                    return "❌ Não consegui identificar qual lembrete você quer deletar. Por favor, tente ser mais específico.";
+                }
+            }
+
             return response;
         } catch (error) {
             console.error('Error processing message:', error);
@@ -108,6 +127,35 @@ export class ConversationManager {
             return null;
         } catch (error) {
             console.error('Error extracting reminder details:', error);
+            return null;
+        }
+    }
+
+    private async extractReminderToDelete(message: string, reminders: any[]): Promise<any> {
+        try {
+            const completion = await openai.chat.completions.create({
+                messages: [
+                    { 
+                        role: "system", 
+                        content: `Analise a mensagem e identifique qual lembrete o usuário quer deletar. 
+                        Retorne apenas o ID do lembrete que deve ser deletado. 
+                        Lembretes disponíveis: ${JSON.stringify(reminders.map(r => ({ id: r._id, text: r.text })))}` 
+                    },
+                    { role: "user", content: message }
+                ],
+                model: "gpt-3.5-turbo",
+                temperature: 0.1,
+                max_tokens: 50
+            });
+
+            const response = completion.choices[0].message.content;
+            if (response) {
+                const reminderId = response.trim();
+                return reminders.find(r => r._id.toString() === reminderId);
+            }
+            return null;
+        } catch (error) {
+            console.error('Error extracting reminder to delete:', error);
             return null;
         }
     }
