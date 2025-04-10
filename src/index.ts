@@ -1,10 +1,8 @@
-import dotenv from 'dotenv';
 import express from 'express';
-import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-import path from 'path';
 import WhatsAppService from './services/whatsappService';
-import mongoose from 'mongoose';
+import { connectDB } from './config/database';
+import dotenv from 'dotenv';
 
 // Load environment variables
 dotenv.config();
@@ -12,56 +10,45 @@ dotenv.config();
 // Set the correct timezone
 process.env.TZ = process.env.TIMEZONE || 'America/Sao_Paulo';
 
-async function startApp() {
-  try {
-    // Connect to MongoDB
-    console.log('Connecting to MongoDB...');
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/reminder_bot');
-    console.log('MongoDB connected successfully!');
+const app = express();
+const port = process.env.PORT || 3000;
 
-    // Initialize Express app
-    const app = express();
-    const server = createServer(app);
-    const wss = new WebSocketServer({ server });
+// Initialize WhatsApp service
+const whatsAppService = new WhatsAppService();
 
-    // Serve static files
-    app.use(express.static(path.join(__dirname, '../public')));
+// WebSocket server for real-time updates
+const wss = new WebSocketServer({ port: 8080 });
 
-    // Initialize WhatsApp service
-    const whatsAppService = new WhatsAppService();
-
-    // Handle WebSocket connections
-    wss.on('connection', (ws) => {
-      console.log('New WebSocket connection');
-      whatsAppService.addWebSocketClient(ws);
-    });
-
-    // Initialize WhatsApp client
-    whatsAppService.initialize();
+wss.on('connection', (ws) => {
+    console.log('New WebSocket client connected');
     
-    // Start the server
-    const PORT = process.env.PORT || 3000;
-    server.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
-      console.log(`Open http://localhost:${PORT} in your browser to see the QR code`);
+    // Send initial status
+    ws.send(JSON.stringify({
+        type: 'status',
+        message: whatsAppService.isClientConnected() ? 'Connected to WhatsApp' : 'Waiting for QR code...',
+        connected: whatsAppService.isClientConnected()
+    }));
+
+    ws.on('close', () => {
+        console.log('WebSocket client disconnected');
     });
-  } catch (error) {
-    console.error('Error starting application:', error);
-    process.exit(1);
-  }
-}
-
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-  process.exit(1);
 });
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        whatsapp: whatsAppService.isClientConnected() ? 'connected' : 'disconnected'
+    });
 });
 
-// Start the application
-startApp(); 
+// Start the server
+app.listen(port, async () => {
+    try {
+        await connectDB();
+        console.log(`Server is running on port ${port}`);
+    } catch (error) {
+        console.error('Failed to start server:', error);
+        process.exit(1);
+    }
+}); 

@@ -3,20 +3,13 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const connectDB = async (): Promise<void> => {
-  try {
-    const mongoURI = process.env.MONGODB_URI;
-    
-    if (!mongoURI) {
-      throw new Error('MongoDB URI is not defined in environment variables');
+export async function connectDB(): Promise<void> {
+    try {
+        console.log('Connecting to MongoDB...');
+        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/reminder_bot');
+        console.log('MongoDB connected successfully!');
+    } catch (error) {
+        console.error('Error connecting to MongoDB:', error);
+        throw error;
     }
-    
-    await mongoose.connect(mongoURI);
-    console.log('MongoDB Connected...');
-  } catch (err) {
-    console.error('Database connection error:', err);
-    process.exit(1);
-  }
-};
-
-export default connectDB; 
+} 
