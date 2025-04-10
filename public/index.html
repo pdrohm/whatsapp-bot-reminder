@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp QR Code</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f2f5;
+        }
+        .container {
+            text-align: center;
+            padding: 20px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+            width: 90%;
+        }
+        #qrcode {
+            margin: 20px 0;
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .waiting {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        #reconnect {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            display: none;
+        }
+        #reconnect:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WhatsApp QR Code</h1>
+        <p>Scan this QR code with your WhatsApp to connect</p>
+        <div id="qrcode">Waiting for QR code...</div>
+        <div id="status" class="status waiting">Connecting to server...</div>
+        <button id="reconnect">Reconnect</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script>
+        let socket;
+        const qrcodeDiv = document.getElementById('qrcode');
+        const statusDiv = document.getElementById('status');
+        const reconnectBtn = document.getElementById('reconnect');
+
+        function connect() {
+            socket = new WebSocket('ws://' + window.location.host + '/ws');
+            
+            socket.onopen = function() {
+                console.log('WebSocket connected');
+                statusDiv.textContent = 'Waiting for QR code...';
+                statusDiv.className = 'status waiting';
+                reconnectBtn.style.display = 'none';
+            };
+
+            socket.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                console.log('Received:', data);
+                
+                if (data.type === 'qr') {
+                    qrcodeDiv.innerHTML = '';
+                    new QRCode(qrcodeDiv, {
+                        text: data.qr,
+                        width: 300,
+                        height: 300,
+                        colorDark: "#000000",
+                        colorLight: "#ffffff",
+                        correctLevel: QRCode.CorrectLevel.H
+                    });
+                } else if (data.type === 'status') {
+                    statusDiv.textContent = data.message;
+                    statusDiv.className = 'status ' + (data.connected ? 'connected' : 'disconnected');
+                    if (data.connected) {
+                        qrcodeDiv.innerHTML = `Connected to WhatsApp!<br>Bot number: ${data.phoneNumber || 'Not available'}`;
+                    }
+                }
+            };
+
+            socket.onclose = function() {
+                console.log('WebSocket disconnected');
+                statusDiv.textContent = 'Connection lost';
+                statusDiv.className = 'status disconnected';
+                reconnectBtn.style.display = 'block';
+            };
+
+            socket.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                statusDiv.textContent = 'Connection error';
+                statusDiv.className = 'status error';
+                reconnectBtn.style.display = 'block';
+            };
+        }
+
+        reconnectBtn.onclick = function() {
+            connect();
+        };
+
+        // Initial connection
+        connect();
+    </script>
+</body>
+</html> 

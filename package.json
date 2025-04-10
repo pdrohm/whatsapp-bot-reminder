@@ -1,0 +1,35 @@
+{
+  "name": "whatsapp-reminder-bot",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "mongoose": "^8.13.2",
+    "node-cron": "^3.0.3",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.27.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.1",
+    "@types/mongoose": "^5.11.97",
+    "@types/node": "^22.14.0",
+    "@types/node-cron": "^3.0.11",
+    "@types/qrcode-terminal": "^0.12.2",
+    "@types/ws": "^8.18.1",
+    "express": "^5.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3",
+    "ws": "^8.18.1"
+  }
+}
