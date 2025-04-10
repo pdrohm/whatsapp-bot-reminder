@@ -1,12 +1,13 @@
 import { Client, LocalAuth, Message } from 'whatsapp-web.js';
 import qrcode from 'qrcode-terminal';
 import { ConversationManager } from './openaiService';
-import { initScheduler } from './schedulerService';
+import { SchedulerService } from './schedulerService';
 
 class WhatsAppService {
     private client: Client;
     private isConnected: boolean = false;
     private conversations: Map<string, ConversationManager> = new Map();
+    private scheduler: SchedulerService;
 
     constructor() {
         this.client = new Client({
@@ -16,6 +17,7 @@ class WhatsAppService {
             }
         });
 
+        this.scheduler = new SchedulerService(this);
         this.initialize();
     }
 
@@ -28,7 +30,7 @@ class WhatsAppService {
         this.client.on('ready', () => {
             console.log('Cliente está pronto!');
             this.isConnected = true;
-            initScheduler(this);
+            this.scheduler.start();
         });
 
         this.client.on('message', async (message: Message) => {

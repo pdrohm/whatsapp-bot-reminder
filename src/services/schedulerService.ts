@@ -1,115 +1,105 @@
-import cron from 'node-cron';
-import { getUpcomingReminders, markReminderAsNotified } from './reminderService';
-import { IReminder } from '../models/Reminder';
+import WhatsAppService from './whatsappService';
+import { getUserReminders, markReminderAsCompleted } from './reminderService';
+import { format, addDays, subHours, isBefore, isAfter } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
-type WhatsAppClient = {
-  sendMessage: (to: string, message: string) => Promise<any>;
-};
+export class SchedulerService {
+    private checkInterval: NodeJS.Timeout | null = null;
+    private readonly CHECK_INTERVAL = 60000; // Check every minute
 
-// Function to format reminder message
-const formatReminderMessage = (reminder: IReminder): string => {
-  const frequencyText = {
-    'once': 'única vez',
-    'daily': 'diariamente',
-    'weekly': 'semanalmente',
-    'monthly': 'mensalmente'
-  }[reminder.frequency];
-  
-  return `🔔 *LEMBRETE*: ${reminder.text}\n` +
-    `⏰ Horário: ${reminder.time}\n` +
-    `🔄 Frequência: ${frequencyText}\n` +
-    `�� ID: ${reminder._id.toString()}`;
-};
+    constructor(private whatsAppService: WhatsAppService) {}
 
-// Function to format reminder notification message (day before)
-const formatNotificationMessage = (reminder: IReminder): string => {
-  return `⚠️ *LEMBRETE PARA AMANHÃ*: ${reminder.text}\n` +
-    `⏰ Horário: ${reminder.time}\n` +
-    `📆 Data: ${reminder.date.toLocaleDateString('pt-BR')}\n` +
-    `🆔 ID: ${reminder._id.toString()}`;
-};
-
-// Check if a reminder should be sent now
-const shouldSendReminder = (reminder: IReminder): boolean => {
-  const now = new Date();
-  const currentHour = now.getHours();
-  const currentMinute = now.getMinutes();
-  
-  // Parse the reminder time
-  const [reminderHour, reminderMinute] = reminder.time.split(':').map(Number);
-  
-  // For daily reminders, check only the time
-  if (reminder.frequency === 'daily') {
-    return currentHour === reminderHour && 
-           currentMinute >= reminderMinute && 
-           currentMinute < reminderMinute + 5;
-  }
-  
-  // For other frequencies, check date and time
-  const reminderDate = new Date(reminder.date);
-  return reminderDate.getDate() === now.getDate() &&
-         reminderDate.getMonth() === now.getMonth() &&
-         reminderDate.getFullYear() === now.getFullYear() &&
-         currentHour === reminderHour &&
-         currentMinute >= reminderMinute &&
-         currentMinute < reminderMinute + 5;
-};
-
-// Check if a reminder should be notified the day before
-const shouldNotifyDayBefore = (reminder: IReminder): boolean => {
-  // Only for non-daily reminders
-  if (reminder.frequency === 'daily') {
-    return false;
-  }
-  
-  const now = new Date();
-  const reminderDate = new Date(reminder.date);
-  
-  // Calculate the day before the reminder
-  const dayBefore = new Date(reminderDate);
-  dayBefore.setDate(dayBefore.getDate() - 1);
-  
-  // Check if today is the day before the reminder
-  return dayBefore.getDate() === now.getDate() &&
-         dayBefore.getMonth() === now.getMonth() &&
-         dayBefore.getFullYear() === now.getFullYear();
-};
-
-// Initialize the scheduler
-export const initScheduler = (whatsAppClient: WhatsAppClient): void => {
-  // Check for reminders every 5 minutes
-  cron.schedule('*/5 * * * *', async () => {
-    try {
-      const upcomingReminders = await getUpcomingReminders();
-      
-      for (const reminder of upcomingReminders) {
-        // Send reminders that should be sent now
-        if (shouldSendReminder(reminder) && !reminder.notified) {
-          await whatsAppClient.sendMessage(
-            reminder.userId,
-            formatReminderMessage(reminder)
-          );
-          
-          // For non-daily reminders, mark as notified after sending
-          if (reminder.frequency !== 'daily') {
-            await markReminderAsNotified(reminder._id.toString());
-          }
+    public start() {
+        if (this.checkInterval) {
+            clearInterval(this.checkInterval);
         }
-        
-        // Send day-before notifications for important events
-        if (shouldNotifyDayBefore(reminder) && !reminder.notified) {
-          await whatsAppClient.sendMessage(
-            reminder.userId,
-            formatNotificationMessage(reminder)
-          );
-        }
-      }
-      
-      console.log(`Scheduler ran at ${new Date().toLocaleString()}`);
-    } catch (error) {
-      console.error('Error in scheduler:', error);
+
+        this.checkInterval = setInterval(async () => {
+            await this.checkReminders();
+        }, this.CHECK_INTERVAL);
+
+        console.log('Scheduler started');
     }
-  });
-  
-  console.log('Scheduler initialized');
-}; 
+
+    public stop() {
+        if (this.checkInterval) {
+            clearInterval(this.checkInterval);
+            this.checkInterval = null;
+        }
+        console.log('Scheduler stopped');
+    }
+
+    private async checkReminders() {
+        try {
+            const now = new Date();
+            
+            // Get all active reminders
+            const reminders = await getUserReminders('all'); // 'all' will get reminders for all users
+            
+            for (const reminder of reminders) {
+                if (reminder.completed) continue;
+
+                const reminderDate = new Date(reminder.date);
+                const [hours, minutes] = reminder.time.split(':').map(Number);
+                reminderDate.setHours(hours, minutes, 0, 0);
+
+                // For daily reminders, check if it's time to notify
+                if (reminder.frequency === 'daily') {
+                    const currentTime = new Date();
+                    currentTime.setHours(currentTime.getHours(), currentTime.getMinutes(), 0, 0);
+                    
+                    if (currentTime.getHours() === hours && currentTime.getMinutes() === minutes) {
+                        await this.sendReminder(reminder);
+                    }
+                }
+                // For one-time reminders
+                else if (reminder.frequency === 'once') {
+                    // Check if it's time to send the reminder
+                    if (isBefore(now, reminderDate) && isAfter(now, subHours(reminderDate, 1))) {
+                        await this.sendReminder(reminder);
+                    }
+                    
+                    // Check if it's one day before
+                    const oneDayBefore = subHours(reminderDate, 24);
+                    if (isBefore(now, oneDayBefore) && isAfter(now, subHours(oneDayBefore, 1))) {
+                        await this.sendReminder(reminder, true);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error checking reminders:', error);
+        }
+    }
+
+    private async sendReminder(reminder: any, isAdvanceNotice: boolean = false) {
+        try {
+            const reminderDate = new Date(reminder.date);
+            const [hours, minutes] = reminder.time.split(':').map(Number);
+            reminderDate.setHours(hours, minutes, 0, 0);
+
+            const formattedDate = format(reminderDate, "EEEE, d 'de' MMMM 'às' HH:mm", { locale: ptBR });
+            
+            let message = '';
+            if (isAdvanceNotice) {
+                message = `🔔 *Lembrete para amanhã!*\n\n` +
+                    `📝 *${reminder.text}*\n` +
+                    `📆 ${formattedDate}\n\n` +
+                    `Não se esqueça deste compromisso!`;
+            } else {
+                message = `🔔 *Lembrete!*\n\n` +
+                    `📝 *${reminder.text}*\n` +
+                    `📆 ${formattedDate}\n\n` +
+                    `É hora de realizar esta tarefa!`;
+            }
+
+            await this.whatsAppService.sendMessage(reminder.userId, message);
+            
+            // If it's a one-time reminder and we're sending the final notification, mark it as completed
+            if (!isAdvanceNotice && reminder.frequency === 'once') {
+                await markReminderAsCompleted(reminder._id.toString());
+            }
+        } catch (error) {
+            console.error('Error sending reminder:', error);
+        }
+    }
+} 
